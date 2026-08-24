@@ -122,10 +122,20 @@ public class ImmutableLogExceptionHandler
     "event_name": "payment.created",
     "service": "my-service",
     "request_id": "uuid",
-    "env": "production"
+    "env": "production",
+    "environment": "production",
+    "client_ip": "1.2.3.4",
+    "http_method": "POST",
+    "http_status": "200",
+    "http_route": "/payments",
+    "log_level": "info"
   }
 }
 ```
+
+> `env` é mantido por compatibilidade; `environment` é o nome canônico do contrato
+> (`CONTRACT.md` §4.1 do `immutablelog_siem`). `client_ip`, `error_type` e `error_message`
+> só aparecem quando o valor existe (IP resolvido, exceção capturada).
 
 ---
 
