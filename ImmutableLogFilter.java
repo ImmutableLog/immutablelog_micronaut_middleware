@@ -190,7 +190,11 @@ public class ImmutableLogFilter implements HttpServerFilter {
         if (xff != null && !xff.isBlank()) return xff.split(",")[0].trim();
         String xri = request.getHeaders().get("X-Real-IP");
         if (xri != null && !xri.isBlank()) return xri;
-        return request.getRemoteAddress().getAddress().getHostAddress();
+        // Without a resolved remote address (null or unresolved InetSocketAddress) there is
+        // no IP to send: return null instead of throwing, otherwise the whole event is lost.
+        var remote = request.getRemoteAddress();
+        if (remote == null || remote.getAddress() == null) return null;
+        return remote.getAddress().getHostAddress();
     }
 
     private String sha256Hex(byte[] data) {
