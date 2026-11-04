@@ -158,7 +158,7 @@ public class AppExceptionHandler
 ```
 
 > `env` é mantido por compatibilidade; `environment` é o nome canônico do contrato
-> (`CONTRACT.md` §4.1 do `immutablelog_siem`). `client_ip` só aparece quando o valor existe.
+> (`CONTRACT.md` §4.1 do `immutablelog_siem`). `client_ip` só aparece quando há IP válido; sem ele, sai também do payload.
 > `error_type`, `error_message` e `error` no payload só aparecem no evento enviado por `emitError()`, que usa status `500`; o evento montado pelo próprio filtro nunca leva exceção (ver [ExceptionHandler](#exceptionhandler-para-erros-não-tratados) sobre por que não chamar `emitError()` num handler HTTP).
 > Quando o body da requisição está disponível como `byte[]`, o payload também leva `request_body_hash` (SHA-256 do body, nunca o conteúdo).
 
@@ -180,12 +180,12 @@ public class AppExceptionHandler
 
 ## Limitações conhecidas
 
-- **`client_ip` vem de header, sem validação.** O filtro usa o primeiro item de `X-Forwarded-For`; sem ele, `X-Real-IP`; sem os dois, o endereço remoto da conexão. Nenhum dos headers é validado, então quem chama a aplicação diretamente (sem um proxy que sobrescreva esses headers) pode forjar o IP registrado.
-- **Sem endereço remoto resolvido, o evento sai sem IP.** Se não houver header de IP e o endereço remoto vier nulo ou não resolvido, o payload leva `"client_ip": null` e `meta.client_ip` é omitido. **Cópias do `ImmutableLogFilter.java` feitas antes desta correção continuam afetadas até serem recopiadas:** nesse cenário elas lançam `NullPointerException` dentro do `try` do envio e o evento inteiro se perde, sem log.
+- **`client_ip` vem primeiro de headers que o chamador controla.** O filtro usa o primeiro item de `X-Forwarded-For` se ele for um IP válido; senão, `X-Real-IP` se for um IP válido; senão, o endereço remoto da conexão (`request.getRemoteAddress()`), também validado; senão, nenhum. Quem chama a aplicação diretamente (sem um proxy que sobrescreva esses headers) pode forjar o IP registrado, desde que mande um IP válido. Antes de validar, o valor passa por `trim` e perde a porta (`10.0.0.1:8080`, `[2001:db8::1]:8080`) e os colchetes. A validação não faz consulta DNS: IPv4 é conferido por expressão regular, e só chega ao `InetAddress.getByName` um valor com `:` feito apenas de dígitos hexadecimais, `:` e `.`, que ele interpreta como literal IPv6. Sem IP válido, `client_ip` não vai nem no `meta` nem no payload.
+- **Sem endereço remoto resolvido, o evento sai sem IP.** Se não houver header com IP válido e o endereço remoto vier nulo ou não resolvido, `client_ip` é omitido do `meta` e do payload. **Cópias do `ImmutableLogFilter.java` feitas antes desta correção continuam afetadas até serem recopiadas:** nesse cenário elas lançam `NullPointerException` dentro do `try` do envio e o evento inteiro se perde, sem log.
 - **`Idempotency-Key` é um UUID aleatório gerado a cada evento**, o mesmo valor de `meta.request_id` (no filtro, gerado por requisição; no `emitError()`, é o `requestId` que quem chama passar). Não vem de nenhum header da requisição de entrada.
 - **Entrega sem garantia.** Um único `sendAsync()` por evento: sem timeout configurado, sem retry, sem fila. A resposta do ImmutableLog é descartada e qualquer erro (rede, status 4xx/5xx, falha ao montar o evento) é ignorado em silêncio — o evento simplesmente se perde.
 - **Sem suporte a trilha (`immutable_trail`):** o filtro não envia nenhum campo de trilha.
-- **Chaves reservadas enviadas em `meta`:** `service`, `environment` (e `env`), `http_method`, `http_status`, `http_route` (template da rota quando o router resolveu, senão o caminho concreto) e `log_level` sempre; `client_ip` quando resolvido; `error_type` e `error_message` só via `emitError()`. Todos são strings.
+- **Chaves reservadas enviadas em `meta`:** `service`, `environment` (e `env`), `http_method`, `http_status`, `http_route` (template da rota quando o router resolveu, senão o caminho concreto) e `log_level` sempre; `client_ip` só quando há IP válido (de `X-Forwarded-For`, `X-Real-IP` ou da conexão); `error_type` e `error_message` só via `emitError()`. Todos são strings.
 - **`status`** no payload é o código HTTP numérico da resposta (ou `500` no `emitError()`); `meta.http_status` é o mesmo valor como string.
 - **O caminho concreto vai no evento.** `path` no payload e o `event_name` padrão usam `request.getPath()` (sem query string), com os IDs que estiverem na URL. O evento selado não pode ser apagado depois.
 - **O hash do body é SHA-256 sem sal.** Não expõe o conteúdo, mas um body previsível pode ser confirmado comparando o hash.
